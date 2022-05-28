@@ -11,6 +11,26 @@ pub enum PieceType {
     King,
 }
 
+impl PieceType {
+    pub fn from_symbol(character: char) -> Option<(Self, Color)> {
+        match character {
+            'p' => Some((PieceType::Pawn, Color::Black)),
+            'r' => Some((PieceType::Rook, Color::Black)),
+            'n' => Some((PieceType::Knight, Color::Black)),
+            'b' => Some((PieceType::Bishop, Color::Black)),
+            'q' => Some((PieceType::Queen, Color::Black)),
+            'k' => Some((PieceType::King, Color::Black)),
+            'P' => Some((PieceType::Pawn, Color::White)),
+            'R' => Some((PieceType::Rook, Color::White)),
+            'N' => Some((PieceType::Knight, Color::White)),
+            'B' => Some((PieceType::Bishop, Color::White)),
+            'Q' => Some((PieceType::Queen, Color::White)),
+            'K' => Some((PieceType::King, Color::White)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum Color {
     White,
@@ -31,14 +51,17 @@ pub enum Square {
 }
 
 impl Square {
+    #[inline]
     pub const fn file(self) -> u8 {
         (self as u8) & 0x7
     }
 
+    #[inline]
     pub const fn rank(self) -> u8 {
         (self as u8).wrapping_shr(3)
     }
 
+    #[inline]
     pub const fn background_color(self) -> Color {
         match (self.file() + self.rank()) % 2 == 0 {
             true => Color::Black,
@@ -50,8 +73,8 @@ impl Square {
 impl From<(u8, u8)> for Square {
     /// Creates a square from a pair of coordinates, each in 0..8.
     #[inline]
-    fn from(xy: (u8, u8)) -> Square {
-        match FromPrimitive::from_u8(xy.0 + 8*xy.1) {
+    fn from(file_rank: (u8, u8)) -> Square {
+        match FromPrimitive::from_u8(file_rank.0 + 8*file_rank.1) {
             None => panic!("Called square position out of bounds"),
             Some(sq) => sq
         }

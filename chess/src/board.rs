@@ -8,6 +8,8 @@ use crate::types::{Color, PieceType, Square};
 pub enum FenError {
     UnknownPartCount,
     UnknownRankCount,
+    UnknownPieceSymbol,
+    TooManyFilesForRank,
 }
 
 impl Error for FenError {}
@@ -24,8 +26,14 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new(fen: &str) -> Result<Board, FenError> {
+    pub fn new(fen: &str) -> Result<Self, FenError> {
         Board::from_str(fen)
+    }
+
+    pub fn empty() -> Board {
+        Board {
+            mailbox: [None; 64]
+        }
     }
 
     #[inline]
@@ -88,9 +96,7 @@ impl Board {
 
 impl Default for Board {
     fn default() -> Board {
-        Board {
-            mailbox: [None; 64],
-        }
+        Board::from_str("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").expect("Error loading default board position")
     }
 }
 
@@ -102,11 +108,36 @@ impl FromStr for Board {
             return Err(FenError::UnknownPartCount);
         }
 
+        let mut board = Board::empty();
         let ranks: Vec<_> = parts[0].split('/').collect();
         if ranks.len() != 8 {
             return Err(FenError::UnknownRankCount);
         }
 
-        return Ok(Board::default())
+        for (rank, piecelist) in ranks.iter().enumerate() {
+            let mut file = 0;
+            for character in piecelist.chars() {
+                if file > 8 {
+                    return Err(FenError::TooManyFilesForRank);
+                }
+
+                if let Some((piece, color)) = PieceType::from_symbol(character) {
+                    let square = Square::from((file as u8, (7 - rank) as u8));
+                    board.place_piece(color, piece, square);
+                    file += 1;
+                    continue;
+                }
+
+                match character {
+                    '1'..='8' => {
+                        file += character.to_digit(10).unwrap();
+                        continue;
+                    },
+                    _ => return Err(FenError::UnknownPieceSymbol),
+                }
+            }
+        }
+
+        return Ok(board);
     }
 }
