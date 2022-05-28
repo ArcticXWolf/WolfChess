@@ -1,9 +1,26 @@
+use std::io;
 use chess::board::Board;
 use chess::types::{Color, PieceType, Square};
 
 fn main() {
     let mut board = Board::default();
 
+    create_default_piece_placement(&mut board);
+
+    loop {
+        println!("{}", board.console_render());
+
+        let command = get_user_command();
+
+        match command {
+            CuiUserCommand::Quit => break,
+            CuiUserCommand::ReadFen{fen} => println!("Loading fen {}", fen),
+            CuiUserCommand::UnknownCommand => println!("Command not known"),
+        }
+    }
+}
+
+fn create_default_piece_placement(board: &mut Board) {
     board.place_piece(Color::White, PieceType::Pawn, Square::A2);
     board.place_piece(Color::White, PieceType::Pawn, Square::B2);
     board.place_piece(Color::White, PieceType::Pawn, Square::C2);
@@ -39,6 +56,27 @@ fn main() {
     board.place_piece(Color::Black, PieceType::Bishop, Square::F8);
     board.place_piece(Color::Black, PieceType::Knight, Square::G8);
     board.place_piece(Color::Black, PieceType::Rook,   Square::H8);
+}
 
-    println!("{}", board.console_render());
+enum CuiUserCommand {
+    ReadFen{fen: String},
+    Quit,
+    UnknownCommand,
+}
+
+fn get_user_command() -> CuiUserCommand {
+    let mut input = String::new();
+    print!("Command: ");
+    io::stdin().read_line(&mut input).expect("error: unable to read user input");
+    let parts: Vec<_> = input.split_whitespace().collect();
+
+    if parts.len() <= 0 {
+        return CuiUserCommand::UnknownCommand;
+    }
+
+    match parts[0].trim() {
+        "quit" => CuiUserCommand::Quit,
+        "fen" => CuiUserCommand::ReadFen{fen: parts[1..].join(" ")},
+        _ => CuiUserCommand::UnknownCommand,
+    }
 }
