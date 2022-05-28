@@ -1,8 +1,6 @@
-#[derive(Debug)]
-pub struct Board {}
+#[macro_use]
+extern crate num_derive;
 
-impl Board {
-    pub fn render(&self) -> () {
-        println!("Board would render here.");
-    }
-}
+pub mod types;
+pub mod bitboard;
+pub mod board;
