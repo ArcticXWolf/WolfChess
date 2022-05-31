@@ -4,6 +4,3 @@ members = [
   "chess",
   "cui",
 ]
-exclude = [
-  "rusttest"
-]
