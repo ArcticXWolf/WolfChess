@@ -1,8 +1,9 @@
 use std::str::FromStr;
 use std::char::from_digit;
 use std::{error::Error, fmt};
+use std::sync::Arc;
 
-use crate::types::{Color, PieceType, Square};
+use crate::types::{Color, Piece, Square};
 
 #[derive(Debug)]
 pub enum FenError {
@@ -10,6 +11,11 @@ pub enum FenError {
     UnknownRankCount,
     UnknownPieceSymbol,
     TooManyFilesForRank,
+    UnknownTurnSymbol,
+    UnknownCastlingSymbol,
+    UnknownEnPassantSquareSymbol,
+    NoNumberForHalfMoveClock,
+    NoNumberForFullMoveNumber,
 }
 
 impl Error for FenError {}
@@ -20,38 +26,64 @@ impl fmt::Display for FenError {
     }
 }
 
+#[derive(Clone)]
+pub struct BoardState {
+    castling_rights: String, // TODO: just as string for now
+    en_passent_square: Option<Square>,
+    previous_state: Option<Arc<BoardState>>,
+}
+
+impl BoardState {
+    pub fn empty() -> Self {
+        Self {
+            castling_rights: String::from("KQkq"),
+            en_passent_square: None,
+            previous_state: None
+        }
+    }
+}
 
 pub struct Board {
-    mailbox: [Option<(PieceType, Color)>; 64],
+    turn: Color,
+    half_move_clock: u16,
+    full_move_number: u16,
+
+    mailbox: [Option<Piece>; 64],
+
+    state: Arc<BoardState>,
 }
 
 impl Board {
     pub fn new(fen: &str) -> Result<Self, FenError> {
-        Board::from_str(fen)
+        Self::from_str(fen)
     }
 
-    pub fn empty() -> Board {
-        Board {
-            mailbox: [None; 64]
+    pub fn empty() -> Self {
+        Self {
+            turn: Color::White,
+            half_move_clock: 0,
+            full_move_number: 1,
+            mailbox: [None; 64],
+            state: Arc::new(BoardState::empty()),
         }
     }
 
     #[inline]
-    pub fn place_piece(&mut self, color: Color, piece: PieceType, square: Square) {
-        self.mailbox[square as usize] = Some((piece, color));
+    pub fn place_piece(&mut self, piece: Piece, square: Square) {
+        self.mailbox[square as usize] = Some(piece);
 
     }
 
     #[inline]
-    pub fn remove_piece(&mut self, square: Square) -> (PieceType, Color) {
-        let (piece, color) = self.mailbox[square as usize].unwrap();
+    pub fn remove_piece(&mut self, square: Square) -> Piece {
+        let piece = self.mailbox[square as usize].unwrap();
         self.mailbox[square as usize] = None;
 
-        (piece, color)
+        piece
     }
 
     #[inline]
-    pub fn get_piece(&self, square: &Square) -> Option<(PieceType, Color)> {
+    pub fn get_piece(&self, square: &Square) -> Option<Piece> {
         self.mailbox[*square as usize]
     }
 
@@ -73,7 +105,7 @@ impl Board {
             for file in 0..8 {
                 let square = Square::from((file, rank as u8));
                 let piece_icon: &str = match self.get_piece(&square) {
-                    Some((piece, color)) => ICONS[color as usize][piece as usize],
+                    Some(piece) => ICONS[piece.color() as usize][piece.piece_type() as usize],
                     None => " ",
                 };
                 let background = match square.background_color() {
@@ -91,6 +123,59 @@ impl Board {
         }
 
         output
+    }
+
+    pub fn to_fen(&self) -> String {
+        let mut fen = String::new();
+
+        for rank in (0..8).rev() {
+            let mut adjacent_empty_squares = 0;
+
+            for file in 0..8 {
+                let square = Square::from((file, rank as u8));
+                match self.get_piece(&square) {
+                    Some(piece) => {
+                        if adjacent_empty_squares > 0 {
+                            fen.push(from_digit(adjacent_empty_squares, 10).unwrap());
+                            adjacent_empty_squares = 0;
+                        }
+                        fen.push(char::from(piece));
+                    },
+                    None => {adjacent_empty_squares += 1;},
+                };
+            }
+
+            if adjacent_empty_squares > 0 {
+                fen.push(from_digit(adjacent_empty_squares, 10).unwrap());
+            }
+
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        fen.push(' ');
+        fen.push(match self.turn {
+            Color::White => 'w',
+            Color::Black => 'b',
+        });
+
+        fen.push(' ');
+        fen.push_str(self.state.castling_rights.as_str());
+
+        fen.push(' ');
+        fen.push_str(match self.state.en_passent_square {
+            Some(_) => "x",
+            None => "-",
+        });
+
+        fen.push(' ');
+        fen.push_str(&self.half_move_clock.to_string());
+
+        fen.push(' ');
+        fen.push_str(&self.full_move_number.to_string());
+
+        fen
     }
 }
 
@@ -121,9 +206,9 @@ impl FromStr for Board {
                     return Err(FenError::TooManyFilesForRank);
                 }
 
-                if let Some((piece, color)) = PieceType::from_symbol(character) {
+                if let Some(piece) = Piece::from_symbol(character) {
                     let square = Square::from((file as u8, (7 - rank) as u8));
-                    board.place_piece(color, piece, square);
+                    board.place_piece(piece, square);
                     file += 1;
                     continue;
                 }
@@ -137,6 +222,40 @@ impl FromStr for Board {
                 }
             }
         }
+
+        board.turn = match parts[1] {
+            "w" => Color::White,
+            "b" => Color::Black,
+            _ => { return Err(FenError::UnknownTurnSymbol) }
+        };
+
+        let castling_rights = match parts[2] {
+            "KQkq" => "KQkq".to_string(),
+            _ => { return Err(FenError::UnknownCastlingSymbol) }
+        };
+
+        let en_passent_square = match parts[3] {
+            "-" => None,
+            _ => { return Err(FenError::UnknownEnPassantSquareSymbol) }
+        };
+
+        let new_state = {
+            let mut state: BoardState = BoardState::empty();
+            state.castling_rights = castling_rights;
+            state.en_passent_square = en_passent_square;
+            state
+        };
+        board.state = Arc::new(new_state);
+
+        board.half_move_clock = match parts[4].parse() {
+            Ok(x) => x,
+            Err(_) => {return Err(FenError::NoNumberForHalfMoveClock)},
+        };
+
+        board.full_move_number = match parts[5].parse() {
+            Ok(x) => x,
+            Err(_) => {return Err(FenError::NoNumberForFullMoveNumber)},
+        };
 
         return Ok(board);
     }

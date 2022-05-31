@@ -12,6 +12,7 @@ fn main() {
         match command {
             CuiUserCommand::Quit => break,
             CuiUserCommand::ReadFen{fen} => {board = Board::new(fen.as_str()).expect("Error during FEN load")},
+            CuiUserCommand::OutputFen => {println!("FEN: {}", board.to_fen())}
             CuiUserCommand::UnknownCommand => println!("Command not known"),
         }
     }
@@ -19,6 +20,7 @@ fn main() {
 
 enum CuiUserCommand {
     ReadFen{fen: String},
+    OutputFen,
     Quit,
     UnknownCommand,
 }
@@ -37,6 +39,7 @@ fn get_user_command() -> CuiUserCommand {
     match parts[0].trim() {
         "quit" | "exit" => CuiUserCommand::Quit,
         "fen" => CuiUserCommand::ReadFen{fen: parts[1..].join(" ")},
+        "getfen" => CuiUserCommand::OutputFen,
         _ => CuiUserCommand::UnknownCommand,
     }
 }

@@ -11,30 +11,71 @@ pub enum PieceType {
     King,
 }
 
-impl PieceType {
-    pub fn from_symbol(character: char) -> Option<(Self, Color)> {
-        match character {
-            'p' => Some((PieceType::Pawn, Color::Black)),
-            'r' => Some((PieceType::Rook, Color::Black)),
-            'n' => Some((PieceType::Knight, Color::Black)),
-            'b' => Some((PieceType::Bishop, Color::Black)),
-            'q' => Some((PieceType::Queen, Color::Black)),
-            'k' => Some((PieceType::King, Color::Black)),
-            'P' => Some((PieceType::Pawn, Color::White)),
-            'R' => Some((PieceType::Rook, Color::White)),
-            'N' => Some((PieceType::Knight, Color::White)),
-            'B' => Some((PieceType::Bishop, Color::White)),
-            'Q' => Some((PieceType::Queen, Color::White)),
-            'K' => Some((PieceType::King, Color::White)),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum Color {
     White,
     Black,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Piece {
+    piece_type: PieceType,
+    color: Color,
+}
+
+impl Piece {
+    pub fn new(piece_type: PieceType, color: Color) -> Self {
+        Self {
+            piece_type,
+            color
+        }
+    }
+
+    pub fn from_symbol(character: char) -> Option<Self> {
+        match character {
+            'P' => Some(Piece::new(PieceType::Pawn, Color::White)),
+            'R' => Some(Piece::new(PieceType::Rook, Color::White)),
+            'N' => Some(Piece::new(PieceType::Knight, Color::White)),
+            'B' => Some(Piece::new(PieceType::Bishop, Color::White)),
+            'Q' => Some(Piece::new(PieceType::Queen, Color::White)),
+            'K' => Some(Piece::new(PieceType::King, Color::White)),
+            'p' => Some(Piece::new(PieceType::Pawn, Color::Black)),
+            'r' => Some(Piece::new(PieceType::Rook, Color::Black)),
+            'n' => Some(Piece::new(PieceType::Knight, Color::Black)),
+            'b' => Some(Piece::new(PieceType::Bishop, Color::Black)),
+            'q' => Some(Piece::new(PieceType::Queen, Color::Black)),
+            'k' => Some(Piece::new(PieceType::King, Color::Black)),
+            _ => None,
+        }
+    }
+
+    pub fn piece_type(&self) -> PieceType {
+        self.piece_type
+    }
+
+    pub fn color(&self) -> Color {
+        self.color
+    }
+}
+
+impl From<Piece> for char {
+    #[inline]
+    fn from(piece: Piece) -> char {
+        match (piece.color(), piece.piece_type()) {
+            (Color::White, PieceType::Pawn) => 'P',
+            (Color::White, PieceType::Rook) => 'R',
+            (Color::White, PieceType::Knight) => 'N',
+            (Color::White, PieceType::Bishop) => 'B',
+            (Color::White, PieceType::Queen) => 'Q',
+            (Color::White, PieceType::King) => 'K',
+            (Color::Black, PieceType::Pawn) => 'p',
+            (Color::Black, PieceType::Rook) => 'r',
+            (Color::Black, PieceType::Knight) => 'n',
+            (Color::Black, PieceType::Bishop) => 'b',
+            (Color::Black, PieceType::Queen) => 'q',
+            (Color::Black, PieceType::King) => 'k',
+        }
+    }
 }
 
 #[repr(u8)]
