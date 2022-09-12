@@ -1,45 +1,33 @@
-use std::io::{self, Write};
-use chess::board::Board;
+use chess::Board;
+use engine;
+use std::io::{self, BufRead};
+use vampirc_uci::{parse_one, UciMessage};
 
 fn main() {
-    let mut board = Board::default();
-
     loop {
-        println!("{}", board.console_render());
+        for line in io::stdin().lock().lines() {
+            let msg: UciMessage = parse_one(&line.unwrap());
 
-        let command = get_user_command();
-
-        match command {
-            CuiUserCommand::Quit => break,
-            CuiUserCommand::ReadFen{fen} => {board = Board::new(fen.as_str()).expect("Error during FEN load")},
-            CuiUserCommand::OutputFen => {println!("FEN: {}", board.to_fen())}
-            CuiUserCommand::UnknownCommand => println!("Command not known"),
+            match msg {
+                UciMessage::Quit => {
+                    break;
+                }
+                UciMessage::Unknown(message_str, err) => {
+                    println!(
+                        "error parsing unknown uci message: {:?} - {}",
+                        err, message_str
+                    )
+                }
+                _ => {
+                    println!("uci message not yet implemented: {}", msg)
+                }
+            }
         }
     }
 }
 
-enum CuiUserCommand {
-    ReadFen{fen: String},
-    OutputFen,
-    Quit,
-    UnknownCommand,
-}
-
-fn get_user_command() -> CuiUserCommand {
-    let mut input = String::new();
-    print!("Command: ");
-    io::stdout().flush().unwrap();
-    io::stdin().read_line(&mut input).expect("error: unable to read user input");
-    let parts: Vec<_> = input.split_whitespace().collect();
-
-    if parts.len() <= 0 {
-        return CuiUserCommand::UnknownCommand;
-    }
-
-    match parts[0].trim() {
-        "quit" | "exit" => CuiUserCommand::Quit,
-        "fen" => CuiUserCommand::ReadFen{fen: parts[1..].join(" ")},
-        "getfen" => CuiUserCommand::OutputFen,
-        _ => CuiUserCommand::UnknownCommand,
-    }
+fn perft() {
+    println!("Running perft:");
+    let (count_nodes, nps) = engine::perft_with_nps(Board::default(), 7);
+    println!("Count: {}, nps {}", count_nodes, nps);
 }

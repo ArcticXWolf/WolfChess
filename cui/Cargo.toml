@@ -6,4 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chess = { path = "../chess" }
+engine = { path = "../engine" }
+chess = "3.2.0"
+vampirc-uci = {version = "0.11", features = ["chess"]}
