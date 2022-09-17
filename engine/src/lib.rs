@@ -2,17 +2,12 @@ mod eval;
 mod search;
 mod time_broker;
 
-use async_std::stream::StreamExt;
 use chess::{Board, ChessMove, Error, MoveGen};
-use futures::channel::mpsc::{self, SendError};
-use futures::SinkExt;
 use std::convert::TryInto;
 use std::str::FromStr;
 use std::time::Instant;
+use tokio::sync::mpsc::{error::SendError, UnboundedReceiver, UnboundedSender};
 use vampirc_uci::{UciInfoAttribute, UciMessage, UciSearchControl, UciTimeControl};
-
-pub type Sender<T> = mpsc::UnboundedSender<T>;
-pub type Receiver<T> = mpsc::UnboundedReceiver<T>;
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub enum EngineCommand {
@@ -51,10 +46,13 @@ struct EngineBroker {
     current_game: Board,
 }
 
-pub async fn broker_loop(mut commands: Receiver<EngineCommand>, mut output: Sender<UciMessage>) {
+pub async fn broker_loop(
+    mut commands: UnboundedReceiver<EngineCommand>,
+    mut output: UnboundedSender<UciMessage>,
+) {
     let mut broker = EngineBroker::new();
 
-    while let Some(command) = commands.next().await {
+    while let Some(command) = commands.recv().await {
         broker.handle_command(command, &mut output).await;
     }
 }
@@ -66,7 +64,11 @@ impl EngineBroker {
         }
     }
 
-    async fn handle_command(&mut self, command: EngineCommand, mut output: &Sender<UciMessage>) {
+    async fn handle_command(
+        &mut self,
+        command: EngineCommand,
+        output: &UnboundedSender<UciMessage>,
+    ) {
         match command {
             EngineCommand::SetPosition {
                 startpos,
@@ -75,11 +77,11 @@ impl EngineBroker {
             } => {
                 self.set_position(startpos, fen, moves).await.unwrap();
                 let answer = UciMessage::info_string(format!("Board: {}", self.current_game));
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
             }
             EngineCommand::Perft { depth } => {
                 let answer = UciMessage::info_string("Perft started.".to_string());
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
                 self.perft_with_nps(depth, output).await.unwrap();
             }
             EngineCommand::EvalCurrentPosition => {
@@ -87,15 +89,15 @@ impl EngineBroker {
                     "info cps {}",
                     eval::evaluate_position(&self.current_game)
                 ));
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
             }
             EngineCommand::ShowBoard => {
                 let answer = UciMessage::info_string(format!("Board: {}", self.current_game));
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
                 let move_scores = search::analyze_moves(&self.current_game, 4);
                 for (mv, score) in move_scores {
                     let answer = UciMessage::info_string(format!("Evalmove: {} {}", mv, score));
-                    output.send(answer).await.unwrap();
+                    output.send(answer).unwrap();
                 }
             }
             EngineCommand::Search {
@@ -126,16 +128,16 @@ impl EngineBroker {
                         UciInfoAttribute::Nps(nps.try_into().unwrap()),
                     ],
                 };
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
                 let answer = UciMessage::BestMove {
                     best_move: *moves.first().unwrap(),
                     ponder: None,
                 };
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
             }
             EngineCommand::IsReady => {
                 let answer = UciMessage::ReadyOk;
-                output.send(answer).await.unwrap();
+                output.send(answer).unwrap();
             }
         };
     }
@@ -170,8 +172,8 @@ impl EngineBroker {
     async fn perft_with_nps(
         &self,
         depth: usize,
-        mut output: &Sender<UciMessage>,
-    ) -> Result<(), SendError> {
+        output: &UnboundedSender<UciMessage>,
+    ) -> Result<(), SendError<UciMessage>> {
         let time = Instant::now();
 
         let nodes = perft(self.current_game, depth);
@@ -184,7 +186,7 @@ impl EngineBroker {
                 UciInfoAttribute::Nps(nps.try_into().unwrap()),
             ],
         };
-        output.send(answer).await.unwrap();
+        output.send(answer).unwrap();
 
         Ok(())
     }

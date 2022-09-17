@@ -6,7 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = "1.12.0"
 chess = "3.2.0"
-futures = "0.3.24"
+tokio = {version = "1.21.1", features = ["full"]}
 vampirc-uci = {version = "0.11", features = ["chess"]}

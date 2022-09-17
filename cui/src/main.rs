@@ -1,60 +1,46 @@
-use futures::{channel::mpsc, SinkExt};
-
-use async_std::{
-    io::{stdin, BufReader},
-    prelude::*,
-    task,
-};
 use engine;
+use tokio::io::{stdin, AsyncBufReadExt, BufReader};
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use vampirc_uci::{parse_one, UciMessage};
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-fn main() {
-    let (broker_command_sender, broker_command_reciever) = mpsc::unbounded();
-    let (broker_output_sender, mut broker_output_reciever) = mpsc::unbounded();
-    let _broker_handle = task::spawn(engine::broker_loop(
+#[tokio::main]
+async fn main() {
+    let (broker_command_sender, broker_command_reciever) = mpsc::unbounded_channel();
+    let (broker_output_sender, mut broker_output_reciever) = mpsc::unbounded_channel();
+    let _broker_handle = tokio::spawn(engine::broker_loop(
         broker_command_reciever,
         broker_output_sender.clone(),
     ));
-    task::spawn(spawn_uci(
+    tokio::spawn(spawn_uci(
         broker_command_sender,
         broker_output_sender.clone(),
     ));
 
-    task::block_on(async {
-        while let Some(msg) = broker_output_reciever.next().await {
+    tokio::spawn(async move {
+        while let Some(msg) = broker_output_reciever.recv().await {
             println!("{}", msg);
         }
-    });
-}
-
-fn spawn_and_log_error<F>(fut: F) -> task::JoinHandle<()>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
-    task::spawn(async move {
-        if let Err(e) = fut.await {
-            eprintln!("{}", e)
-        }
     })
+    .await
+    .unwrap();
 }
 
 async fn spawn_uci(
-    engine_command_sender: engine::Sender<engine::EngineCommand>,
-    output: engine::Sender<UciMessage>,
-) -> Result<()> {
+    engine_command_sender: UnboundedSender<engine::EngineCommand>,
+    output: UnboundedSender<UciMessage>,
+) {
     let reader = BufReader::new(stdin());
     let mut lines = reader.lines();
 
-    while let Some(line) = lines.next().await {
+    while let Ok(line) = lines.next_line().await {
         let msg = parse_one(&line.unwrap());
         match msg {
             UciMessage::Quit => {
                 break;
             }
             _ => {
-                spawn_and_log_error(handle_message(
+                tokio::spawn(handle_message(
                     msg,
                     engine_command_sender.clone(),
                     output.clone(),
@@ -62,14 +48,18 @@ async fn spawn_uci(
             }
         }
     }
-    Ok(())
+}
+
+enum HandleMessageError {
+    Engine(SendError<engine::EngineCommand>),
+    Output(SendError<UciMessage>),
 }
 
 async fn handle_message(
     msg: UciMessage,
-    mut engine_command_sender: engine::Sender<engine::EngineCommand>,
-    mut output: engine::Sender<UciMessage>,
-) -> Result<()> {
+    mut engine_command_sender: UnboundedSender<engine::EngineCommand>,
+    mut output: UnboundedSender<UciMessage>,
+) -> Result<(), HandleMessageError> {
     match msg {
         UciMessage::Uci => {
             output
@@ -77,18 +67,22 @@ async fn handle_message(
                     name: Some("WolfChess".to_string()),
                     author: None,
                 })
-                .await?;
+                .map_err(|e| HandleMessageError::Output(e))?;
             output
                 .send(UciMessage::Id {
                     name: None,
                     author: Some("Jan Niklas Richter".to_string()),
                 })
-                .await?;
-            output.send(UciMessage::UciOk).await?;
+                .map_err(|e| HandleMessageError::Output(e))?;
+            output
+                .send(UciMessage::UciOk)
+                .map_err(|e| HandleMessageError::Output(e))?;
         }
         UciMessage::IsReady => {
             let command = engine::EngineCommand::IsReady;
-            engine_command_sender.send(command).await?;
+            engine_command_sender
+                .send(command)
+                .map_err(|e| HandleMessageError::Engine(e))?;
         }
         UciMessage::Position {
             startpos,
@@ -104,7 +98,9 @@ async fn handle_message(
                 fen: fen_str,
                 moves: moves,
             };
-            engine_command_sender.send(command).await?;
+            engine_command_sender
+                .send(command)
+                .map_err(|e| HandleMessageError::Engine(e))?;
         }
         UciMessage::Go {
             time_control,
@@ -114,20 +110,28 @@ async fn handle_message(
                 time_control,
                 search_control,
             };
-            engine_command_sender.send(command).await?;
+            engine_command_sender
+                .send(command)
+                .map_err(|e| HandleMessageError::Engine(e))?;
         }
         UciMessage::Unknown(message_str, err) => match message_str.as_str() {
             "perft" => {
                 let command = engine::EngineCommand::Perft { depth: 7 };
-                engine_command_sender.send(command).await?;
+                engine_command_sender
+                    .send(command)
+                    .map_err(|e| HandleMessageError::Engine(e))?;
             }
             "eval" => {
                 let command = engine::EngineCommand::EvalCurrentPosition;
-                engine_command_sender.send(command).await?;
+                engine_command_sender
+                    .send(command)
+                    .map_err(|e| HandleMessageError::Engine(e))?;
             }
             "show" => {
                 let command = engine::EngineCommand::ShowBoard;
-                engine_command_sender.send(command).await?;
+                engine_command_sender
+                    .send(command)
+                    .map_err(|e| HandleMessageError::Engine(e))?;
             }
             _ => {
                 output
@@ -135,7 +139,7 @@ async fn handle_message(
                         "Unknown message - {:#?} {}",
                         err, message_str
                     )))
-                    .await?;
+                    .map_err(|e| HandleMessageError::Output(e))?;
             }
         },
         _ => {
@@ -144,7 +148,7 @@ async fn handle_message(
                     "Message not yet implemented - {}",
                     msg
                 )))
-                .await?;
+                .map_err(|e| HandleMessageError::Output(e))?;
         }
     }
     Ok(())
