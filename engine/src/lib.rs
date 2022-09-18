@@ -6,6 +6,7 @@ use chess::{Board, ChessMove, Error, MoveGen};
 use std::convert::TryInto;
 use std::str::FromStr;
 use std::time::Instant;
+use time_broker::TimeBroker;
 use tokio::sync::mpsc::{error::SendError, UnboundedReceiver, UnboundedSender};
 use vampirc_uci::{UciInfoAttribute, UciMessage, UciSearchControl, UciTimeControl};
 
@@ -34,6 +35,8 @@ pub enum EngineCommand {
         time_control: Option<UciTimeControl>,
         search_control: Option<UciSearchControl>,
     },
+    /// Stop search next possible
+    StopSearch,
     /// Print evaluation score for current position
     EvalCurrentPosition,
     /// Print the current board
@@ -44,23 +47,27 @@ pub enum EngineCommand {
 
 struct EngineBroker {
     current_game: Board,
+    time_broker: TimeBroker,
 }
 
 pub async fn broker_loop(
     mut commands: UnboundedReceiver<EngineCommand>,
     mut output: UnboundedSender<UciMessage>,
 ) {
+    println!("info string EngineBroker started");
     let mut broker = EngineBroker::new();
 
     while let Some(command) = commands.recv().await {
         broker.handle_command(command, &mut output).await;
     }
+    println!("info string EngineBroker shutdown");
 }
 
 impl EngineBroker {
     fn new() -> EngineBroker {
         EngineBroker {
             current_game: Board::default(),
+            time_broker: TimeBroker::new(),
         }
     }
 
@@ -94,46 +101,15 @@ impl EngineBroker {
             EngineCommand::ShowBoard => {
                 let answer = UciMessage::info_string(format!("Board: {}", self.current_game));
                 output.send(answer).unwrap();
-                let move_scores = search::analyze_moves(&self.current_game, 4);
-                for (mv, score) in move_scores {
-                    let answer = UciMessage::info_string(format!("Evalmove: {} {}", mv, score));
-                    output.send(answer).unwrap();
-                }
             }
             EngineCommand::Search {
                 time_control,
                 search_control,
             } => {
-                let time = Instant::now();
-
-                let (score, moves, leaves_searched) = search::alphabeta(
-                    &self.current_game,
-                    -eval::MAX_CP_SCORE,
-                    eval::MAX_CP_SCORE,
-                    7,
-                );
-
-                let nps = (leaves_searched as f64 / time.elapsed().as_secs_f64()) as u32;
-
-                let answer = UciMessage::Info {
-                    0: vec![
-                        UciInfoAttribute::Score {
-                            cp: Some(score),
-                            mate: None,
-                            lower_bound: None,
-                            upper_bound: None,
-                        },
-                        UciInfoAttribute::Pv(moves.clone()),
-                        UciInfoAttribute::Nodes(leaves_searched.try_into().unwrap()),
-                        UciInfoAttribute::Nps(nps.try_into().unwrap()),
-                    ],
-                };
-                output.send(answer).unwrap();
-                let answer = UciMessage::BestMove {
-                    best_move: *moves.first().unwrap(),
-                    ponder: None,
-                };
-                output.send(answer).unwrap();
+                self.search(time_control, search_control, output);
+            }
+            EngineCommand::StopSearch => {
+                self.time_broker.send_stop();
             }
             EngineCommand::IsReady => {
                 let answer = UciMessage::ReadyOk;
@@ -189,6 +165,46 @@ impl EngineBroker {
         output.send(answer).unwrap();
 
         Ok(())
+    }
+
+    fn search(
+        &mut self,
+        time_control: Option<UciTimeControl>,
+        search_control: Option<UciSearchControl>,
+        output: &UnboundedSender<UciMessage>,
+    ) {
+        let board = self.current_game.clone();
+        let moved_output = output.clone();
+        let mut cancel_receiver = self.time_broker.get_cancel_receiver();
+        let max_depth = search_control.map_or(None, |d| d.depth.map(|d| d as usize));
+
+        if let Some(tc) = time_control {
+            self.time_broker
+                .seed_time_control(board.side_to_move(), &tc);
+
+            match tc {
+                UciTimeControl::TimeLeft { .. } | UciTimeControl::MoveTime(..) => {
+                    let new_receiver_option = self.time_broker.start_timer();
+                    if let Some(new_receiver) = new_receiver_option {
+                        cancel_receiver = new_receiver;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        tokio::spawn(async move {
+            println!("info string SearchTask started");
+            let result =
+                search::iterative_deepening(&board, max_depth, cancel_receiver, &moved_output);
+
+            let answer = UciMessage::BestMove {
+                best_move: *result.pv.first().unwrap(),
+                ponder: None,
+            };
+            moved_output.send(answer).unwrap();
+            println!("info string SearchTask shutdown");
+        });
     }
 }
 

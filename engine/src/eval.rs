@@ -3,8 +3,13 @@ use chess::{Board, Color, Piece, ALL_PIECES};
 pub const MAX_CP_SCORE: i32 = 1000000;
 
 pub fn evaluate_position(board: &Board) -> i32 {
-    evaluate_material_for_color(board, Color::White)
-        - evaluate_material_for_color(board, Color::Black)
+    let result = evaluate_material_for_color(board, Color::White)
+        - evaluate_material_for_color(board, Color::Black);
+
+    match board.side_to_move() {
+        Color::White => result,
+        Color::Black => -result,
+    }
 }
 
 fn evaluate_material_for_color(board: &Board, color: Color) -> i32 {

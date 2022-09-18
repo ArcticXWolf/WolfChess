@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use engine;
 use tokio::io::{stdin, AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::error::SendError;
@@ -12,16 +14,17 @@ async fn main() {
         broker_command_reciever,
         broker_output_sender.clone(),
     ));
-    tokio::spawn(spawn_uci(
-        broker_command_sender,
-        broker_output_sender.clone(),
-    ));
-
     tokio::spawn(async move {
+        println!("info string OutputTask started");
         while let Some(msg) = broker_output_reciever.recv().await {
             println!("{}", msg);
         }
-    })
+        println!("info string OutputTask shutdown");
+    });
+    tokio::spawn(spawn_uci(
+        broker_command_sender,
+        broker_output_sender.clone(),
+    ))
     .await
     .unwrap();
 }
@@ -30,6 +33,7 @@ async fn spawn_uci(
     engine_command_sender: UnboundedSender<engine::EngineCommand>,
     output: UnboundedSender<UciMessage>,
 ) {
+    println!("info string UCITask started");
     let reader = BufReader::new(stdin());
     let mut lines = reader.lines();
 
@@ -47,7 +51,9 @@ async fn spawn_uci(
                 ));
             }
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    println!("info string UCITask shutdown");
 }
 
 enum HandleMessageError {
@@ -57,9 +63,10 @@ enum HandleMessageError {
 
 async fn handle_message(
     msg: UciMessage,
-    mut engine_command_sender: UnboundedSender<engine::EngineCommand>,
-    mut output: UnboundedSender<UciMessage>,
+    engine_command_sender: UnboundedSender<engine::EngineCommand>,
+    output: UnboundedSender<UciMessage>,
 ) -> Result<(), HandleMessageError> {
+    println!("info string HandleMessage started");
     match msg {
         UciMessage::Uci => {
             output
@@ -114,6 +121,12 @@ async fn handle_message(
                 .send(command)
                 .map_err(|e| HandleMessageError::Engine(e))?;
         }
+        UciMessage::Stop => {
+            let command = engine::EngineCommand::StopSearch;
+            engine_command_sender
+                .send(command)
+                .map_err(|e| HandleMessageError::Engine(e))?;
+        }
         UciMessage::Unknown(message_str, err) => match message_str.as_str() {
             "perft" => {
                 let command = engine::EngineCommand::Perft { depth: 7 };
@@ -151,5 +164,6 @@ async fn handle_message(
                 .map_err(|e| HandleMessageError::Output(e))?;
         }
     }
+    println!("info string HandleMessage shutdown");
     Ok(())
 }
