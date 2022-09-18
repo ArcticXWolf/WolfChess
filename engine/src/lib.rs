@@ -1,6 +1,7 @@
 mod eval;
 mod search;
 mod time_broker;
+mod weights;
 
 use chess::{Board, ChessMove, Error, MoveGen};
 use std::convert::TryInto;
