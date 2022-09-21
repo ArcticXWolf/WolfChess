@@ -69,6 +69,7 @@ pub fn iterative_deepening(
             &cancel_receiver,
             depth,
             0,
+            (depth / 2).min(8),
             &mut cache,
         );
 
@@ -134,6 +135,7 @@ pub fn alphabeta(
     cancel_receiver: &Receiver<bool>,
     depth_left: usize,
     ply: usize,
+    quiescence_search_depth: usize,
     cache: &mut CacheTable<CacheEntry>,
 ) -> (i32, Vec<ChessMove>, i32, bool) {
     let original_alpha = alpha;
@@ -177,7 +179,7 @@ pub fn alphabeta(
     }
 
     if depth_left == 0 {
-        let score = eval::evaluate_position(board);
+        let score = quiescence_search(board, alpha, beta, quiescence_search_depth);
         return (score, Vec::new(), 1, false);
     }
 
@@ -198,6 +200,7 @@ pub fn alphabeta(
             cancel_receiver,
             depth_left - 1,
             ply + 1,
+            quiescence_search_depth,
             cache,
         );
         new_score = -new_score;
@@ -241,4 +244,37 @@ pub fn alphabeta(
         total_leaves_searched,
         cancelled,
     )
+}
+
+fn quiescence_search(board: &Board, mut alpha: i32, beta: i32, depth_left: usize) -> i32 {
+    let score = eval::evaluate_position(board);
+
+    if depth_left == 0 {
+        return score;
+    }
+
+    if score >= beta {
+        return beta;
+    }
+
+    if score > alpha {
+        alpha = score;
+    }
+
+    let mut movegen = MoveGen::new_legal(&board);
+    let targets = board.color_combined(!board.side_to_move());
+    // TODO: Add en_passent here
+    movegen.set_iterator_mask(*targets);
+
+    for mv in movegen {
+        let new_board = board.make_move_new(mv);
+        let new_score = -quiescence_search(&new_board, -beta, -alpha, depth_left - 1);
+        if new_score >= beta {
+            return beta;
+        }
+        if score > alpha {
+            alpha = score;
+        }
+    }
+    return alpha;
 }
