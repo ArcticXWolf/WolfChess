@@ -30,17 +30,20 @@ impl TimeBroker {
                 black_increment,
                 ..
             } => match own_color {
-                Color::White => white_increment.map_or(Some(Duration::from_secs(5)), |d| {
+                Color::White => white_increment.map_or(Some(Duration::from_secs(10)), |d| {
                     d.to_std()
-                        .map_or(Some(Duration::from_secs(5)), |ds| Some(ds))
+                        .map_or(Some(Duration::from_secs(10)), |ds| Some(ds))
                 }),
-                Color::Black => black_increment.map_or(Some(Duration::from_secs(5)), |d| {
+                Color::Black => black_increment.map_or(Some(Duration::from_secs(10)), |d| {
                     d.to_std()
-                        .map_or(Some(Duration::from_secs(5)), |ds| Some(ds))
+                        .map_or(Some(Duration::from_secs(10)), |ds| Some(ds))
                 }),
             },
             _ => None,
         };
+        if self.duration == Some(Duration::ZERO) {
+            self.duration = Some(Duration::from_secs(10));
+        }
         println!("info string Duration set: {:?}", self.duration);
     }
 

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use chess::{Board, BoardStatus, ChessMove, MoveGen};
+use chess::{Board, BoardStatus, CacheTable, ChessMove, MoveGen};
 use tokio::sync::{mpsc::UnboundedSender, watch::Receiver};
 use vampirc_uci::{UciInfoAttribute, UciMessage};
 
@@ -15,6 +15,27 @@ pub struct SearchInfo {
     pub time: Duration,
 }
 
+#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
+pub enum AlphaBetaFlag {
+    Exact,
+    LowerBound,
+    UpperBound,
+}
+
+impl Default for AlphaBetaFlag {
+    fn default() -> Self {
+        AlphaBetaFlag::LowerBound
+    }
+}
+
+#[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Default)]
+pub struct CacheEntry {
+    pub chess_move: ChessMove,
+    pub depth: usize,
+    pub flag: AlphaBetaFlag,
+    pub value: i32,
+}
+
 pub fn iterative_deepening(
     board: &Board,
     max_depth: Option<usize>,
@@ -22,6 +43,7 @@ pub fn iterative_deepening(
     output: &UnboundedSender<UciMessage>,
 ) -> SearchInfo {
     let time = Instant::now();
+    let mut cache = CacheTable::<CacheEntry>::new(256 * 1024 * 1024, CacheEntry::default());
 
     let mut depth = 0;
     let mut result = SearchInfo {
@@ -36,6 +58,10 @@ pub fn iterative_deepening(
     loop {
         depth += 1;
 
+        if max_depth.map_or_else(|| false, |md| depth > md) {
+            break;
+        }
+
         let (score, moves, nodes, cancelled) = alphabeta(
             board,
             -eval::MAX_CP_SCORE,
@@ -43,9 +69,10 @@ pub fn iterative_deepening(
             &cancel_receiver,
             depth,
             0,
+            &mut cache,
         );
 
-        if cancelled || max_depth.map_or_else(|| false, |md| depth > md) {
+        if cancelled {
             break;
         }
 
@@ -103,14 +130,41 @@ pub fn iterative_deepening(
 pub fn alphabeta(
     board: &Board,
     mut alpha: i32,
-    beta: i32,
+    mut beta: i32,
     cancel_receiver: &Receiver<bool>,
     depth_left: usize,
     ply: usize,
+    cache: &mut CacheTable<CacheEntry>,
 ) -> (i32, Vec<ChessMove>, i32, bool) {
+    let original_alpha = alpha;
     let mut best_score = -eval::MAX_CP_SCORE;
     let mut best_pricipal_variation = Vec::<ChessMove>::new();
     let mut total_leaves_searched = 0;
+
+    if let Some(entry) = cache.get(board.get_hash()) {
+        if entry.depth as usize >= depth_left {
+            match entry.flag {
+                AlphaBetaFlag::Exact => {
+                    best_pricipal_variation.push(entry.chess_move);
+                    return (entry.value, best_pricipal_variation, 1, false);
+                }
+                AlphaBetaFlag::LowerBound => {
+                    if entry.value > alpha {
+                        alpha = entry.value;
+                    };
+                }
+                AlphaBetaFlag::UpperBound => {
+                    if entry.value < beta {
+                        beta = entry.value;
+                    };
+                }
+            }
+            if alpha >= beta {
+                best_pricipal_variation.push(entry.chess_move);
+                return (entry.value, best_pricipal_variation, 1, false);
+            }
+        }
+    }
 
     match board.status() {
         BoardStatus::Stalemate => {
@@ -144,6 +198,7 @@ pub fn alphabeta(
             cancel_receiver,
             depth_left - 1,
             ply + 1,
+            cache,
         );
         new_score = -new_score;
         cancelled = cancelled || new_cancelled;
@@ -162,6 +217,22 @@ pub fn alphabeta(
         if alpha >= beta {
             break;
         }
+    }
+
+    if !cancelled {
+        let entry = CacheEntry {
+            value: alpha,
+            depth: depth_left,
+            chess_move: best_pricipal_variation.first().unwrap().clone(),
+            flag: if alpha <= original_alpha {
+                AlphaBetaFlag::UpperBound
+            } else if alpha >= beta {
+                AlphaBetaFlag::LowerBound
+            } else {
+                AlphaBetaFlag::Exact
+            },
+        };
+        cache.add(board.get_hash(), entry);
     }
 
     (

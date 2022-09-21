@@ -1,3 +1,4 @@
+pub const PAWN_MV: i32 = 100;
 #[rustfmt::skip]
 pub const PAWN_PST: [i32; 64] = [
     0, 0, 0, 0, 0, 0, 0, 0,
@@ -10,6 +11,7 @@ pub const PAWN_PST: [i32; 64] = [
     0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+pub const KNIGHT_MV: i32 = 320;
 #[rustfmt::skip]
 pub const KNIGHT_PST: [i32; 64] = [
 	-8, -12, -8, -8, -8, -8, -12, -8,
@@ -22,6 +24,7 @@ pub const KNIGHT_PST: [i32; 64] = [
 	-8, -8, -8, -8, -8, -8, -8, -8,
 ];
 
+pub const BISHOP_MV: i32 = 330;
 #[rustfmt::skip]
 pub const BISHOP_PST: [i32; 64] = [
 	-4, -4, -12, -4, -4, -12, -4, -4,
@@ -34,6 +37,7 @@ pub const BISHOP_PST: [i32; 64] = [
 	-4, -4, -4, -4, -4, -4, -4, -4,
 ];
 
+pub const ROOK_MV: i32 = 500;
 #[rustfmt::skip]
 pub const ROOK_PST: [i32; 64] = [
 	0, 0, 0, 2, 2, 0, 0, 0,
@@ -46,6 +50,7 @@ pub const ROOK_PST: [i32; 64] = [
 	5, 5, 5, 5, 5, 5, 5, 5,
 ];
 
+pub const QUEEN_MV: i32 = 900;
 #[rustfmt::skip]
 pub const QUEEN_PST: [i32; 64] = [
 	-5, -5, -5, -5, -5, -5, -5, -5,
@@ -58,6 +63,7 @@ pub const QUEEN_PST: [i32; 64] = [
 	0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+pub const KING_MV: i32 = 0;
 #[rustfmt::skip]
 pub const KING_PST: [i32; 64] = [
 	40, 50, 30, 10, 10, 30, 50, 40,
@@ -69,3 +75,21 @@ pub const KING_PST: [i32; 64] = [
 	-30, -20, -40, -60, -60, -40, -20, -30,
 	-40, -30, -50, -70, -70, -50, -30, -40,
 ];
+#[rustfmt::skip]
+pub const KING_PST_EG: [i32; 64] = [
+	40, 50, 30, 10, 10, 30, 50, 40,
+	30, 40, 20, 0, 0, 20, 40, 30,
+	10, 20, 0, -20, -20, 0, 20, 10,
+	0, 10, -10, -30, -30, -10, 10, 0,
+	-10, 0, -20, -40, -40, -20, 0, -10,
+	-20, -10, -30, -50, -50, -30, -10, -20,
+	-30, -20, -40, -60, -60, -40, -20, -30,
+	-40, -30, -50, -70, -70, -50, -30, -40,
+];
+
+pub const PAIR_MOD_BISHOP: i32 = 30;
+pub const PAIR_MOD_KNIGHT: i32 = -8;
+pub const PAIR_MOD_ROOK: i32 = -16;
+
+pub const MOBILITY_MOD: i32 = 1;
+pub const TEMPO_MOD: i32 = 20;
