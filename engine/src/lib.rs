@@ -1,9 +1,11 @@
 mod eval;
+mod game;
 mod search;
 mod time_broker;
 mod weights;
 
 use chess::{Board, ChessMove, Error, MoveGen};
+use game::Game;
 use std::convert::TryInto;
 use std::str::FromStr;
 use std::time::Instant;
@@ -47,7 +49,7 @@ pub enum EngineCommand {
 }
 
 struct EngineBroker {
-    current_game: Board,
+    current_game: Game,
     time_broker: TimeBroker,
 }
 
@@ -67,7 +69,7 @@ pub async fn broker_loop(
 impl EngineBroker {
     fn new() -> EngineBroker {
         EngineBroker {
-            current_game: Board::default(),
+            current_game: Game::new(),
             time_broker: TimeBroker::new(),
         }
     }
@@ -84,7 +86,8 @@ impl EngineBroker {
                 moves,
             } => {
                 self.set_position(startpos, fen, moves).await.unwrap();
-                let answer = UciMessage::info_string(format!("Board: {}", self.current_game));
+                let answer =
+                    UciMessage::info_string(format!("Board: {}", self.current_game.position()));
                 output.send(answer).unwrap();
             }
             EngineCommand::Perft { depth } => {
@@ -95,12 +98,13 @@ impl EngineBroker {
             EngineCommand::EvalCurrentPosition => {
                 let answer = UciMessage::info_string(format!(
                     "info cps {}",
-                    eval::evaluate_position(&self.current_game)
+                    eval::evaluate_position(&self.current_game.position())
                 ));
                 output.send(answer).unwrap();
             }
             EngineCommand::ShowBoard => {
-                let answer = UciMessage::info_string(format!("Board: {}", self.current_game));
+                let answer =
+                    UciMessage::info_string(format!("Board: {}", self.current_game.position()));
                 output.send(answer).unwrap();
             }
             EngineCommand::Search {
@@ -126,13 +130,13 @@ impl EngineBroker {
         moves: Vec<ChessMove>,
     ) -> Result<(), Error> {
         if startpos {
-            self.current_game = Board::default();
+            self.current_game = Game::new();
         }
 
         match fen {
             Some(fen_str) => {
-                self.current_game = match Board::from_str(fen_str.as_str()) {
-                    Ok(board) => board,
+                self.current_game = match Game::from_str(fen_str.as_str()) {
+                    Ok(game) => game,
                     Err(e) => return Err(e),
                 }
             }
@@ -153,7 +157,7 @@ impl EngineBroker {
     ) -> Result<(), SendError<UciMessage>> {
         let time = Instant::now();
 
-        let nodes = perft(self.current_game, depth);
+        let nodes = perft(&self.current_game, depth);
 
         let nps = (nodes as f64 / time.elapsed().as_secs_f64()) as u32;
 
@@ -174,14 +178,14 @@ impl EngineBroker {
         search_control: Option<UciSearchControl>,
         output: &UnboundedSender<UciMessage>,
     ) {
-        let board = self.current_game.clone();
+        let game = self.current_game.clone();
         let moved_output = output.clone();
         let mut cancel_receiver = self.time_broker.get_cancel_receiver();
         let max_depth = search_control.map_or(None, |d| d.depth.map(|d| d as usize));
 
         if let Some(tc) = time_control {
             self.time_broker
-                .seed_time_control(board.side_to_move(), &tc);
+                .seed_time_control(game.position().side_to_move(), &tc);
 
             match tc {
                 UciTimeControl::TimeLeft { .. } | UciTimeControl::MoveTime(..) => {
@@ -197,7 +201,7 @@ impl EngineBroker {
         tokio::spawn(async move {
             println!("info string SearchTask started");
             let result =
-                search::iterative_deepening(&board, max_depth, cancel_receiver, &moved_output);
+                search::iterative_deepening(&game, max_depth, cancel_receiver, &moved_output);
 
             let answer = UciMessage::BestMove {
                 best_move: *result.pv.first().unwrap(),
@@ -209,8 +213,8 @@ impl EngineBroker {
     }
 }
 
-fn perft(board: Board, depth: usize) -> u32 {
-    let movegen = MoveGen::new_legal(&board);
+fn perft(game: &Game, depth: usize) -> u32 {
+    let movegen = MoveGen::new_legal(game.position());
 
     if depth <= 1 {
         return movegen.len().try_into().unwrap();
@@ -218,8 +222,8 @@ fn perft(board: Board, depth: usize) -> u32 {
 
     let mut count_nodes_total = 0;
     for mv in movegen {
-        let new_board = board.make_move_new(mv);
-        let count_nodes_this_move = perft(new_board, depth - 1);
+        let new_game = game.make_move_new(mv);
+        let count_nodes_this_move = perft(&new_game, depth - 1);
         count_nodes_total += count_nodes_this_move;
     }
 

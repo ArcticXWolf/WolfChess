@@ -4,7 +4,7 @@ use chess::{Board, BoardStatus, CacheTable, ChessMove, MoveGen};
 use tokio::sync::{mpsc::UnboundedSender, watch::Receiver};
 use vampirc_uci::{UciInfoAttribute, UciMessage};
 
-use crate::eval;
+use crate::{eval, game::Game};
 
 pub struct SearchInfo {
     pub score: i32,
@@ -37,7 +37,7 @@ pub struct CacheEntry {
 }
 
 pub fn iterative_deepening(
-    board: &Board,
+    game: &Game,
     max_depth: Option<usize>,
     cancel_receiver: Receiver<bool>,
     output: &UnboundedSender<UciMessage>,
@@ -63,7 +63,7 @@ pub fn iterative_deepening(
         }
 
         let (score, moves, nodes, cancelled) = alphabeta(
-            board,
+            game,
             -eval::MAX_CP_SCORE,
             eval::MAX_CP_SCORE,
             &cancel_receiver,
@@ -129,7 +129,7 @@ pub fn iterative_deepening(
 }
 
 pub fn alphabeta(
-    board: &Board,
+    game: &Game,
     mut alpha: i32,
     mut beta: i32,
     cancel_receiver: &Receiver<bool>,
@@ -143,7 +143,7 @@ pub fn alphabeta(
     let mut best_pricipal_variation = Vec::<ChessMove>::new();
     let mut total_leaves_searched = 0;
 
-    if let Some(entry) = cache.get(board.get_hash()) {
+    if let Some(entry) = cache.get(game.position().get_hash()) {
         if entry.depth as usize >= depth_left {
             match entry.flag {
                 AlphaBetaFlag::Exact => {
@@ -168,7 +168,7 @@ pub fn alphabeta(
         }
     }
 
-    match board.status() {
+    match game.position().status() {
         BoardStatus::Stalemate => {
             return (0, Vec::new(), 1, false);
         }
@@ -179,11 +179,11 @@ pub fn alphabeta(
     }
 
     if depth_left == 0 {
-        let score = quiescence_search(board, alpha, beta, quiescence_search_depth);
+        let score = quiescence_search(game, alpha, beta, quiescence_search_depth);
         return (score, Vec::new(), 1, false);
     }
 
-    let movegen = MoveGen::new_legal(&board);
+    let movegen = MoveGen::new_legal(game.position());
     let mut cancelled = false;
 
     for mv in movegen {
@@ -192,9 +192,9 @@ pub fn alphabeta(
             return (0, Vec::new(), 1, true);
         }
 
-        let new_board = board.make_move_new(mv);
+        let new_game = game.make_move_new(mv);
         let (mut new_score, new_moves, leaves_searched, new_cancelled) = alphabeta(
-            &new_board,
+            &new_game,
             -beta,
             -alpha,
             cancel_receiver,
@@ -235,7 +235,7 @@ pub fn alphabeta(
                 AlphaBetaFlag::Exact
             },
         };
-        cache.add(board.get_hash(), entry);
+        cache.add(game.position().get_hash(), entry);
     }
 
     (
@@ -246,8 +246,8 @@ pub fn alphabeta(
     )
 }
 
-fn quiescence_search(board: &Board, mut alpha: i32, beta: i32, depth_left: usize) -> i32 {
-    let score = eval::evaluate_position(board);
+fn quiescence_search(game: &Game, mut alpha: i32, beta: i32, depth_left: usize) -> i32 {
+    let score = eval::evaluate_position(game.position());
 
     if depth_left == 0 {
         return score;
@@ -261,14 +261,16 @@ fn quiescence_search(board: &Board, mut alpha: i32, beta: i32, depth_left: usize
         alpha = score;
     }
 
-    let mut movegen = MoveGen::new_legal(&board);
-    let targets = board.color_combined(!board.side_to_move());
+    let mut movegen = MoveGen::new_legal(game.position());
+    let targets = game
+        .position()
+        .color_combined(!game.position().side_to_move());
     // TODO: Add en_passent here
     movegen.set_iterator_mask(*targets);
 
     for mv in movegen {
-        let new_board = board.make_move_new(mv);
-        let new_score = -quiescence_search(&new_board, -beta, -alpha, depth_left - 1);
+        let new_game = game.make_move_new(mv);
+        let new_score = -quiescence_search(&new_game, -beta, -alpha, depth_left - 1);
         if new_score >= beta {
             return beta;
         }

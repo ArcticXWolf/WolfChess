@@ -62,7 +62,7 @@ resign:
   moves: 5 # How many moves in a row the value of the score has to be below the resignation value.
 
 matchmaking:
-  enabled: true
+  enabled: false
   variant: standard
   initial_times: # Initial time for matchmaking mode to be selected at random.
     - 60
